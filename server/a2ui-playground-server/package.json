@@ -1,0 +1,22 @@
+{
+  "name": "@a2ui/playground-server",
+  "version": "0.0.1",
+  "private": true,
+  "scripts": {
+    "dev": "ts-node src/index.ts",
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/index.js"
+  },
+  "dependencies": {
+    "@koa/router": "^15.7.1",
+    "koa": "^3.3.0",
+    "openai": "^7.59.0"
+  },
+  "devDependencies": {
+    "@types/koa": "^3.0.3",
+    "@types/koa__router": "^15.0.0",
+    "@types/node": "^26.6.6",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.9.3"
+  }
+}
