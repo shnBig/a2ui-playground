@@ -100,4 +100,56 @@ describe('createJsonlStream', () => {
     assert.match(getStore().getState().errors[0].content, /invalid JSON/);
     assert.ok(result.surfaces.s1, '后续合法行仍被处理');
   });
+
+  it('父级先到先渲染，子组件到达后逐步挂载', () => {
+    init({
+      renderMap: { Column: () => 'column-vnode', Text: () => 'text-vnode' },
+      attachChildren: (vnode, children) => `${vnode}(${children.join('|')})`,
+    });
+
+    const begin = JSON.stringify({
+      beginRendering: { surfaceId: 's1', root: 'root' },
+    });
+    const rootLine = JSON.stringify({
+      surfaceUpdate: {
+        surfaceId: 's1',
+        components: [
+          {
+            id: 'root',
+            component: { Column: { children: { explicitList: ['t1', 't2'] } } },
+          },
+        ],
+      },
+    });
+    const textLine = (id: string) =>
+      JSON.stringify({
+        surfaceUpdate: {
+          surfaceId: 's1',
+          components: [{ id, component: { Text: {} } }],
+        },
+      });
+
+    const stream = createJsonlStream({ reset: false });
+    const findTree = (result: ReturnType<typeof stream.push>) =>
+      result.trees.find((item) => item.surfaceId === 's1');
+
+    // beginRendering 先到、root 未到：暂不渲染
+    assert.equal(findTree(stream.push(`${begin}\n`))?.rootVnode, null);
+
+    // 父级到齐：先渲染出空容器
+    const afterRoot = findTree(stream.push(`${rootLine}\n`));
+    assert.equal(afterRoot?.root?.componentId, 'root');
+    assert.deepEqual(afterRoot?.root?.children, []);
+    assert.equal(afterRoot?.rootVnode, 'column-vnode');
+
+    // 子组件逐个到达：容器内容逐步增加
+    assert.equal(
+      findTree(stream.push(`${textLine('t1')}\n`))?.rootVnode,
+      'column-vnode(text-vnode)',
+    );
+    assert.equal(
+      findTree(stream.push(`${textLine('t2')}\n`))?.rootVnode,
+      'column-vnode(text-vnode|text-vnode)',
+    );
+  });
 });
