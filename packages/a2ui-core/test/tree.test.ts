@@ -184,13 +184,30 @@ describe('treeBuild', () => {
   it('子组件在协议中先于父组件定义时仍按 explicitList 组装', () => {
     init({ renderMap: { Column: () => null, Text: () => null } });
 
-    const [updateLine, beginLine] = readColumnMock().trim().split('\n');
-    const update = JSON.parse(updateLine) as {
-      surfaceUpdate: { surfaceId: string; components: Array<{ id: string }> };
+    // 子组件先定义、父组件后定义
+    const surfaceUpdate = {
+      surfaceUpdate: {
+        surfaceId: 'column-texts',
+        components: [
+          { id: 'text-1', component: { Text: {} } },
+          { id: 'text-2', component: { Text: {} } },
+          { id: 'text-3', component: { Text: {} } },
+          {
+            id: 'root',
+            component: {
+              Column: { children: { explicitList: ['text-1', 'text-2', 'text-3'] } },
+            },
+          },
+        ],
+      },
     };
-    // 打乱定义顺序：把子组件放到父组件之前
-    update.surfaceUpdate.components.reverse();
-    parseJsonl([JSON.stringify(update), beginLine].join('\n'), { reset: false });
+    const beginRendering = {
+      beginRendering: { surfaceId: 'column-texts', root: 'root' },
+    };
+    parseJsonl(
+      [JSON.stringify(surfaceUpdate), JSON.stringify(beginRendering)].join('\n'),
+      { reset: false },
+    );
 
     const root = treeBuild().find((item) => item.surfaceId === 'column-texts')?.root;
     assert.deepEqual(

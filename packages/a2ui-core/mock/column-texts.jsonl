@@ -1,2 +1,5 @@
-{"surfaceUpdate":{"surfaceId":"column-texts","components":[{"id":"root","component":{"Column":{"distribution":"start","alignment":"stretch","children":{"explicitList":["text-1","text-2","text-3"]}}}},{"id":"text-1","component":{"Text":{"text":{"literalString":"First line"},"usageHint":"h3"}}},{"id":"text-2","component":{"Text":{"text":{"literalString":"Second line"},"usageHint":"body"}}},{"id":"text-3","component":{"Text":{"text":{"literalString":"Third line"},"usageHint":"caption"}}}]}}
 {"beginRendering":{"surfaceId":"column-texts","root":"root","catalogId":"https://a2ui.org/specification/v0_8/catalogs/minimal/minimal_catalog.json"}}
+{"surfaceUpdate":{"surfaceId":"column-texts","components":[{"id":"root","component":{"Column":{"distribution":"start","alignment":"stretch","children":{"explicitList":["text-1","text-2","text-3"]}}}}]}}
+{"surfaceUpdate":{"surfaceId":"column-texts","components":[{"id":"text-1","component":{"Text":{"text":{"literalString":"First line"},"usageHint":"h3"}}}]}}
+{"surfaceUpdate":{"surfaceId":"column-texts","components":[{"id":"text-2","component":{"Text":{"text":{"literalString":"Second line"},"usageHint":"body"}}}]}}
+{"surfaceUpdate":{"surfaceId":"column-texts","components":[{"id":"text-3","component":{"Text":{"text":{"literalString":"Third line"},"usageHint":"caption"}}}]}}
