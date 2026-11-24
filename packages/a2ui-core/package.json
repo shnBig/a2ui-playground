@@ -11,19 +11,30 @@
       "types": "./dist/index.d.ts",
       "development": "./src/index.ts",
       "import": "./dist/index.js"
-    }
+    },
+    "./mock/*": "./mock/*"
   },
   "files": [
-    "dist"
+    "dist",
+    "mock"
   ],
   "sideEffects": false,
   "scripts": {
-    "build": "tsc -p tsconfig.json"
+    "build": "tsc -p tsconfig.json",
+    "test": "mocha test/**/*.test.ts",
+    "test:parser": "mocha test/parser.test.ts"
   },
   "publishConfig": {
     "access": "public"
   },
   "devDependencies": {
+    "@types/mocha": "^10.0.10",
+    "@types/node": "^26.6.6",
+    "mocha": "^12.0.3",
+    "tsx": "^4.23.15",
     "typescript": "^5.9.3"
+  },
+  "dependencies": {
+    "zustand": "^5.1.0"
   }
 }
