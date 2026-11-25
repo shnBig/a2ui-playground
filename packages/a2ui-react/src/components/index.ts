@@ -20,6 +20,9 @@ export type { DividerProps } from './Divider.js';
 export { Column } from './Column.js';
 export type { ColumnProps } from './Column.js';
 
+export { Card } from './Card.js';
+export type { CardProps } from './Card.js';
+
 export { CheckBox } from './CheckBox.js';
 export type { CheckBoxProps } from './CheckBox.js';
 

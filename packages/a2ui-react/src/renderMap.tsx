@@ -3,6 +3,7 @@ import type { ReactElement, ReactNode } from 'react';
 import type { AttachChildren, RenderMap } from '@a2ui/core';
 import {
   AudioPlayer,
+  Card,
   CheckBox,
   Column,
   DateTimeInput,
@@ -69,8 +70,8 @@ function asOptions(value: unknown): MultipleChoiceOption[] {
  * 每个渲染器都会把 componentId 透传到组件根元素上，便于在页面中定位组件。
  *
  * 暂不包含需要引用其它组件节点的结构化组件：
- * Row / List / Card / Tabs / Modal / Button（child 指向另一个组件）。
- * Column 已实现为容器：子节点由 treeBuild 组装，渲染时通过 attachChildren 注入。
+ * Row / List / Tabs / Modal / Button（child 指向另一个组件）。
+ * Column / Card 已实现为容器：子节点由 treeBuild 组装，渲染时通过 attachChildren 注入。
  */
 export const renderMap: RenderMap<ReactElement> = {
   Column: (props, context) => (
@@ -80,6 +81,8 @@ export const renderMap: RenderMap<ReactElement> = {
       alignment={asString(props.alignment)}
     />
   ),
+
+  Card: (_props, context) => <Card componentId={context.componentId} />,
 
   Text: (props, context) => (
     <Text

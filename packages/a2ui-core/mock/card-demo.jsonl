@@ -1,0 +1,6 @@
+{"beginRendering":{"surfaceId":"card-demo","root":"card-root","catalogId":"https://a2ui.org/specification/v0_8/catalogs/minimal/minimal_catalog.json"}}
+{"surfaceUpdate":{"surfaceId":"card-demo","components":[{"id":"card-root","component":{"Card":{"child":"card-body"}}}]}}
+{"surfaceUpdate":{"surfaceId":"card-demo","components":[{"id":"card-body","component":{"Column":{"distribution":"start","alignment":"stretch","children":{"explicitList":["card-title","card-desc","card-footer"]}}}}]}}
+{"surfaceUpdate":{"surfaceId":"card-demo","components":[{"id":"card-title","component":{"Text":{"text":{"literalString":"A2UI Card Demo"},"usageHint":"h3"}}}]}}
+{"surfaceUpdate":{"surfaceId":"card-demo","components":[{"id":"card-desc","component":{"Text":{"text":{"literalString":"Card uses a single child reference. The child subtree mounts as it arrives."},"usageHint":"body"}}}]}}
+{"surfaceUpdate":{"surfaceId":"card-demo","components":[{"id":"card-footer","component":{"Text":{"text":{"literalString":"streamed incrementally"},"usageHint":"caption"}}}]}}

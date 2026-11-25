@@ -217,6 +217,53 @@ describe('treeBuild', () => {
     );
   });
 
+  it('Card 通过 child 单引用组装子树', () => {
+    init({
+      renderMap: {
+        Card: () => 'card-vnode',
+        Column: () => 'column-vnode',
+        Text: () => 'text-vnode',
+      },
+      attachChildren: (vnode, children) => `${vnode}(${children.join('|')})`,
+    });
+    parseJsonl(
+      [
+        JSON.stringify({ beginRendering: { surfaceId: 's1', root: 'card' } }),
+        JSON.stringify({
+          surfaceUpdate: {
+            surfaceId: 's1',
+            components: [
+              { id: 'card', component: { Card: { child: 'body' } } },
+              {
+                id: 'body',
+                component: {
+                  Column: { children: { explicitList: ['text-1'] } },
+                },
+              },
+              { id: 'text-1', component: { Text: {} } },
+            ],
+          },
+        }),
+      ].join('\n'),
+      { reset: false },
+    );
+
+    const tree = treeBuild().find((item) => item.surfaceId === 's1');
+    assert.deepEqual(
+      getStore().getState().findHydrateNode('s1', 'card')?.children,
+      ['body'],
+      'child 单引用应写入 HydrateNode.children',
+    );
+    assert.equal(tree?.root?.componentId, 'card');
+    assert.equal(tree?.root?.children[0].componentId, 'body');
+    assert.equal(tree?.root?.children[0].parentId, 'card');
+    assert.equal(
+      tree?.rootVnode,
+      'card-vnode(column-vnode(text-vnode))',
+      'Card → Column → Text 应递归挂载成一棵渲染树',
+    );
+  });
+
   it('子组件引用不存在时跳过该子节点', () => {
     init({ renderMap: { Column: () => null, Text: () => null } });
     parseJsonl(

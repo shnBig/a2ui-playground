@@ -1,0 +1,38 @@
+---
+description: Require running a2ui-core unit tests after any code changes in that package
+globs: packages/a2ui-core/**/*
+alwaysApply: false
+---
+
+# a2ui-core: Run Unit Tests After Changes
+
+Whenever you create, edit, or delete code under `packages/a2ui-core` (including `src/`, `test/`, and related config), you **must** run the package unit tests before considering the task done.
+
+## Required command
+
+From the repo root:
+
+```bash
+npm test --workspace=@a2ui/core
+```
+
+Or from the package directory:
+
+```bash
+cd packages/a2ui-core && npm test
+```
+
+(`npm test` runs `mocha test/**/*.test.ts`.)
+
+## Workflow
+
+1. Make the code change.
+2. Run the unit tests.
+3. If any test fails, fix the failure and re-run until all tests pass.
+4. Only then report the change as complete.
+
+## Do not
+
+- Skip tests because the change “looks small” or “is only a refactor”
+- Treat the task as finished while tests are failing or were not run
+- Invent a different test runner; use the package `test` script above

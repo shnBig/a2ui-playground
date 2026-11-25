@@ -15,13 +15,14 @@ import type { JsonlStreamParser, SurfaceTree } from '@a2ui/core';
 // .jsonl 文件为唯一数据源，通过 Vite raw 导入为字符串
 import simpleTextJsonl from '@a2ui/core/mock/simple-text.jsonl?raw';
 import columnTextsJsonl from '@a2ui/core/mock/column-texts.jsonl?raw';
+import cardDemoJsonl from '@a2ui/core/mock/card-demo.jsonl?raw';
 import { attachChildren, renderMap } from '@a2ui/react';
 
 // 应用启动时创建 store 实例，把 React 渲染表与子节点挂载策略注入 core
 const store = init({ renderMap, attachChildren });
 
-/** 两份 mock 拼接成一次完整流；末尾已有换行，段间再加一个只是空行，会被跳过 */
-const FULL_JSONL = `${simpleTextJsonl}\n${columnTextsJsonl}`;
+/** 三份 mock 拼接成一次完整流；末尾已有换行，段间再加一个只是空行，会被跳过 */
+const FULL_JSONL = `${simpleTextJsonl}\n${columnTextsJsonl}\n${cardDemoJsonl}`;
 /** 模拟 chunk 大小与间隔，越小越能看出"逐步组合"的过程 */
 const CHUNK_SIZE = 24;
 const CHUNK_INTERVAL = 60;

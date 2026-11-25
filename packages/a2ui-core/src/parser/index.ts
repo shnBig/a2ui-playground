@@ -138,10 +138,13 @@ function getComponentEntry(
 }
 
 /**
- * 容器组件的子节点：children.explicitList 中的组件 id 列表。
+ * 容器组件的子节点引用：
+ * - children.explicitList：Column 等多子组件容器；
+ * - child：Card 等单子组件容器。
  * template 动态列表暂不支持，返回空数组。
  */
 function getChildIds(props: Record<string, unknown>): string[] {
+  if (typeof props.child === 'string') return [props.child];
   const children = props.children;
   if (!children || typeof children !== 'object') return [];
   const explicitList = (children as Record<string, unknown>).explicitList;
