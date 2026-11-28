@@ -26,7 +26,7 @@ const TAG_BY_HINT: Record<string, ElementType> = {
 
 /**
  * A2UI Text 组件：按 usageHint 映射到对应标签渲染文本。
- * 暂不支持 path 数据绑定（store 当前不维护数据模型），路径引用渲染为空。
+ * path 由 a2ui-core 在调用渲染器前解析成 literalString，这里只显示字面量。
  */
 export function Text({ text, usageHint, componentId }: TextProps) {
   const content = text?.literalString ?? '';

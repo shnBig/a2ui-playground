@@ -1,6 +1,12 @@
 import { createStore } from 'zustand/vanilla';
 import type { StateCreator, StoreApi } from 'zustand/vanilla';
 import {
+  applyContents,
+  applyImplicitValues,
+  resolveBoundProps,
+} from './dataModel.js';
+import type { DataModel } from './dataModel.js';
+import {
   A2uiStoreState,
   AttachChildren,
   ComponentId,
@@ -27,16 +33,17 @@ export interface InitOptions<TNode = unknown> {
   attachChildren?: AttachChildren<TNode>;
 }
 
-/** 调用渲染器得到节点产物；未注册或抛错时返回 null */
+/** 调用渲染器得到节点产物；未注册或抛错时返回 null。props 从数据模型解析后再传入。 */
 function renderNode(
   node: HydrateNode,
   renderMap: RenderMap,
+  model: DataModel | undefined,
 ): unknown {
   if (!node.componentType) return null;
   const renderer = renderMap[node.componentType];
   if (!renderer) return null;
   try {
-    return renderer(node.props, {
+    return renderer(resolveBoundProps(node.props, model), {
       componentId: node.componentId,
       surfaceId: node.ownerSurfaceId,
     });
@@ -53,6 +60,7 @@ function applyRendererChange(
   hydrateNodeMap: HydrateNodeMap,
   surfaceMap: Record<SurfaceId, Surface>,
   renderMap: RenderMap,
+  dataModelMap: Record<SurfaceId, DataModel>,
   componentType: string,
 ): {
   hydrateNodeMap: HydrateNodeMap;
@@ -66,7 +74,10 @@ function applyRendererChange(
     const nextSurfaceNodes: Record<ComponentId, HydrateNode> = {};
     for (const [componentId, node] of Object.entries(nodes)) {
       if (node.componentType === componentType) {
-        nextSurfaceNodes[componentId] = { ...node, _vnode: renderNode(node, renderMap) };
+        nextSurfaceNodes[componentId] = {
+          ...node,
+          _vnode: renderNode(node, renderMap, dataModelMap[surfaceId]),
+        };
         surfaceChanged = true;
       } else {
         nextSurfaceNodes[componentId] = node;
@@ -100,6 +111,49 @@ function applyRendererChange(
   };
 }
 
+/** 按当前模型重渲染一个 surface 上的部分或全部节点，并同步 rootNode 引用 */
+function rerenderSurfaceNodes(
+  hydrateNodeMap: HydrateNodeMap,
+  surfaceMap: Record<SurfaceId, Surface>,
+  renderMap: RenderMap,
+  dataModelMap: Record<SurfaceId, DataModel>,
+  surfaceId: SurfaceId,
+  componentIds: ComponentId[] | null,
+): {
+  hydrateNodeMap: HydrateNodeMap;
+  surfaceMap: Record<SurfaceId, Surface>;
+} {
+  const nodes = hydrateNodeMap[surfaceId];
+  if (!nodes) return { hydrateNodeMap, surfaceMap };
+  const ids = componentIds ?? Object.keys(nodes);
+  if (ids.length === 0) return { hydrateNodeMap, surfaceMap };
+
+  let changed = false;
+  const nextSurfaceNodes: Record<ComponentId, HydrateNode> = { ...nodes };
+  for (const componentId of ids) {
+    const node = nodes[componentId];
+    if (!node) continue;
+    nextSurfaceNodes[componentId] = {
+      ...node,
+      _vnode: renderNode(node, renderMap, dataModelMap[surfaceId]),
+    };
+    changed = true;
+  }
+  if (!changed) return { hydrateNodeMap, surfaceMap };
+
+  const nextNodes: HydrateNodeMap = { ...hydrateNodeMap, [surfaceId]: nextSurfaceNodes };
+  const surface = surfaceMap[surfaceId];
+  const root = surface?.rootNode;
+  const fresh = root ? nextSurfaceNodes[root.componentId] : undefined;
+  if (!surface || !fresh || fresh === root) {
+    return { hydrateNodeMap: nextNodes, surfaceMap };
+  }
+  return {
+    hydrateNodeMap: nextNodes,
+    surfaceMap: { ...surfaceMap, [surfaceId]: { ...surface, rootNode: fresh } },
+  };
+}
+
 /**
  * store 的状态工厂，供 createStore 调用。
  * renderMap / attachChildren 由 init() 传入并作为 store 状态的一部分维护，reset() 不清空。
@@ -110,9 +164,53 @@ const createA2uiStoreState = (
 ): StateCreator<A2uiStoreState> => (set, get) => ({
   surfaceMap: {},
   hydrateNodeMap: {},
+  dataModelMap: {},
   errors: [],
   renderMap: initialRenderMap,
   attachChildren: initialAttachChildren,
+
+  applyDataModelUpdate: (surfaceId, path, contents) => {
+    set((state) => {
+      const dataModelMap = {
+        ...state.dataModelMap,
+        [surfaceId]: applyContents(state.dataModelMap[surfaceId] ?? {}, path, contents),
+      };
+      return {
+        dataModelMap,
+        ...rerenderSurfaceNodes(
+          state.hydrateNodeMap,
+          state.surfaceMap,
+          state.renderMap,
+          dataModelMap,
+          surfaceId,
+          null,
+        ),
+      };
+    });
+  },
+
+  applyImplicitInits: (surfaceId, writes) => {
+    if (writes.length === 0) return;
+    set((state) => ({
+      dataModelMap: {
+        ...state.dataModelMap,
+        [surfaceId]: applyImplicitValues(state.dataModelMap[surfaceId] ?? {}, writes),
+      },
+    }));
+  },
+
+  rerenderHydrateNodes: (surfaceId, componentIds) => {
+    set((state) =>
+      rerenderSurfaceNodes(
+        state.hydrateNodeMap,
+        state.surfaceMap,
+        state.renderMap,
+        state.dataModelMap,
+        surfaceId,
+        componentIds,
+      ),
+    );
+  },
 
   addSurface: (surface) => {
     set((state) => ({
@@ -149,9 +247,13 @@ const createA2uiStoreState = (
       const hydrateNodeMap: HydrateNodeMap = { ...state.hydrateNodeMap };
       delete hydrateNodeMap[surfaceId];
 
+      const dataModelMap = { ...state.dataModelMap };
+      delete dataModelMap[surfaceId];
+
       return {
         surfaceMap,
         hydrateNodeMap,
+        dataModelMap,
         errors: state.errors.filter((error) => error.surfaceId !== surfaceId),
       };
     });
@@ -215,7 +317,16 @@ const createA2uiStoreState = (
   addRenderer: (componentType, renderer) => {
     set((state) => {
       const renderMap: RenderMap = { ...state.renderMap, [componentType]: renderer };
-      return { renderMap, ...applyRendererChange(state.hydrateNodeMap, state.surfaceMap as Record<SurfaceId, Surface>, renderMap, componentType) };
+      return {
+        renderMap,
+        ...applyRendererChange(
+          state.hydrateNodeMap,
+          state.surfaceMap as Record<SurfaceId, Surface>,
+          renderMap,
+          state.dataModelMap,
+          componentType,
+        ),
+      };
     });
   },
 
@@ -223,7 +334,16 @@ const createA2uiStoreState = (
     set((state) => {
       const renderMap: RenderMap = { ...state.renderMap };
       delete renderMap[componentType];
-      return { renderMap, ...applyRendererChange(state.hydrateNodeMap, state.surfaceMap as Record<SurfaceId, Surface>, renderMap, componentType) };
+      return {
+        renderMap,
+        ...applyRendererChange(
+          state.hydrateNodeMap,
+          state.surfaceMap as Record<SurfaceId, Surface>,
+          renderMap,
+          state.dataModelMap,
+          componentType,
+        ),
+      };
     });
   },
 
@@ -257,6 +377,7 @@ const createA2uiStoreState = (
     set({
       surfaceMap: {},
       hydrateNodeMap: {},
+      dataModelMap: {},
       errors: [],
     });
   },

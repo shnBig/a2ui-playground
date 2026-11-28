@@ -1,5 +1,9 @@
+import type { DataEntry, DataModel, DataValue, ImplicitWrite } from './dataModel.js';
+
 /** canvas / surface 唯一标识 */
 export type SurfaceId = string;
+
+export type { DataEntry, DataModel, DataValue, ImplicitWrite };
 
 /** 组件节点唯一标识（作用域为 surface） */
 export type ComponentId = string;
@@ -101,11 +105,24 @@ export type HydrateNodeMap<TNode = unknown> = Record<
 export interface A2uiStoreState<TNode = unknown> {
   surfaceMap: Record<SurfaceId, Surface<TNode>>;
   hydrateNodeMap: HydrateNodeMap<TNode>;
+  /** 按 surface 分区的数据模型。dataModelUpdate 解析时先写入这里，渲染只读它 */
+  dataModelMap: Record<SurfaceId, DataModel>;
   errors: A2uiError[];
   /** 组件渲染器表，由 init() 注入，reset() 不清空 */
   renderMap: RenderMap<TNode>;
   /** 子节点挂载策略，由 init() 注入，reset() 不清空 */
   attachChildren: AttachChildren<TNode> | null;
+
+  /** 把 dataModelUpdate 写入模型，并按原始 props 重渲染该 surface 已有节点 */
+  applyDataModelUpdate(
+    surfaceId: SurfaceId,
+    path: string | undefined,
+    contents: DataEntry[],
+  ): void;
+  /** path + literal 的隐式初始化。不重渲染，由调用方在写入后渲染 */
+  applyImplicitInits(surfaceId: SurfaceId, writes: ImplicitWrite[]): void;
+  /** 用当前数据模型重渲染指定节点，不再次执行隐式初始化 */
+  rerenderHydrateNodes(surfaceId: SurfaceId, componentIds: ComponentId[]): void;
 
   addSurface(surface: SurfaceInput<TNode>): void;
   updateSurface(surfaceId: SurfaceId, patch: SurfacePatch<TNode>): void;

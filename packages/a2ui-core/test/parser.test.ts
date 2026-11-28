@@ -164,7 +164,7 @@ describe('parser', () => {
   });
 
   describe('dataModelUpdate', () => {
-    it('识别为合法消息，不产生错误、也不创建 surface', () => {
+    it('写入数据模型，但不创建 surface', () => {
       const dmu: DataModelUpdateMessage = {
         dataModelUpdate: {
           surfaceId: 's1',
@@ -175,7 +175,73 @@ describe('parser', () => {
 
       assert.equal(result.errorCount, 0);
       assert.equal(getStore().getState().findSurface('s1'), undefined);
-      assert.equal(getStore().getState().errors.length, 0);
+      assert.deepEqual(getStore().getState().dataModelMap.s1, { name: 'Alice' });
+    });
+
+    it('path 省略时用 contents 替换整棵模型', () => {
+      const first: DataModelUpdateMessage = {
+        dataModelUpdate: {
+          surfaceId: 's1',
+          contents: [{ key: 'name', valueString: 'Alice' }],
+        },
+      };
+      const second: DataModelUpdateMessage = {
+        dataModelUpdate: {
+          surfaceId: 's1',
+          path: '/',
+          contents: [{ key: 'other', valueString: 'x' }],
+        },
+      };
+      parseJsonl([JSON.stringify(first), JSON.stringify(second)].join('\n'));
+
+      assert.deepEqual(getStore().getState().dataModelMap.s1, { other: 'x' });
+    });
+
+    it('子路径替换该子树，同级其他键保留，valueMap 递归解码', () => {
+      const root: DataModelUpdateMessage = {
+        dataModelUpdate: {
+          surfaceId: 's1',
+          contents: [
+            { key: 'keep', valueBoolean: false },
+            {
+              key: 'user',
+              valueMap: [{ key: 'name', valueString: 'Ann' }, { key: 'city', valueString: 'Old' }],
+            },
+          ],
+        },
+      };
+      const patch: DataModelUpdateMessage = {
+        dataModelUpdate: {
+          surfaceId: 's1',
+          path: '/user',
+          contents: [
+            { key: 'name', valueString: 'Bob' },
+            {
+              key: 'address',
+              valueMap: [{ key: 'city', valueString: 'Anytown' }],
+            },
+          ],
+        },
+      };
+      parseJsonl([JSON.stringify(root), JSON.stringify(patch)].join('\n'));
+
+      assert.deepEqual(getStore().getState().dataModelMap.s1, {
+        keep: false,
+        user: { name: 'Bob', address: { city: 'Anytown' } },
+      });
+    });
+
+    it('后续 parse 默认 reset 会清掉数据模型', () => {
+      parseJsonl(
+        JSON.stringify({
+          dataModelUpdate: {
+            surfaceId: 's1',
+            contents: [{ key: 'name', valueString: 'Alice' }],
+          },
+        }),
+      );
+      parseJsonl('');
+      assert.deepEqual(getStore().getState().dataModelMap, {});
     });
   });
 
@@ -193,12 +259,19 @@ describe('parser', () => {
       const del: DeleteSurfaceMessage = {
         deleteSurface: { surfaceId: 's1' },
       };
-      parseJsonl([JSON.stringify(su), JSON.stringify(del)].join('\n'));
+      const dmu: DataModelUpdateMessage = {
+        dataModelUpdate: {
+          surfaceId: 's1',
+          contents: [{ key: 'name', valueString: 'Alice' }],
+        },
+      };
+      parseJsonl([JSON.stringify(su), JSON.stringify(dmu), JSON.stringify(del)].join('\n'));
 
       const state = getStore().getState();
       assert.ok(!state.findSurface('s1'), 'surface 应被删除');
       assert.ok(!state.findHydrateNode('s1', 'c1'), 'c1 应级联删除');
       assert.ok(!state.findHydrateNode('s1', 'c2'), 'c2 应级联删除');
+      assert.equal(state.dataModelMap.s1, undefined, '数据模型应随 surface 删除');
     });
 
     it('删除不存在的 surface 不报错', () => {
@@ -504,6 +577,140 @@ describe('parser', () => {
 
       assert.equal(called, 2);
       assert.equal(getStore().getState().findHydrateNode('s1', 'root')?._vnode, 'vnode-2');
+    });
+  });
+
+  describe('数据绑定', () => {
+    const textRenderer = (props: Record<string, unknown>) => props;
+
+    it('仅 literal 时原样传给渲染器，不写数据模型', () => {
+      init({ renderMap: { Text: textRenderer } });
+      parseJsonl(
+        JSON.stringify({
+          surfaceUpdate: {
+            surfaceId: 's1',
+            components: [
+              { id: 'root', component: { Text: { text: { literalString: 'Hello' } } } },
+            ],
+          },
+        }),
+        { reset: false },
+      );
+
+      const node = getStore().getState().findHydrateNode('s1', 'root');
+      assert.deepEqual(node?.props, { text: { literalString: 'Hello' } });
+      assert.deepEqual(node?._vnode, { text: { literalString: 'Hello' } });
+      assert.equal(getStore().getState().dataModelMap.s1, undefined);
+    });
+
+    it('仅 path 时从模型填回 literalString，协议 props 保持原文', () => {
+      init({ renderMap: { Text: textRenderer } });
+      parseJsonl(
+        [
+          JSON.stringify({
+            dataModelUpdate: {
+              surfaceId: 's1',
+              contents: [{ key: 'headline', valueString: 'Hello' }],
+            },
+          }),
+          JSON.stringify({
+            surfaceUpdate: {
+              surfaceId: 's1',
+              components: [
+                { id: 'root', component: { Text: { text: { path: '/headline' } } } },
+              ],
+            },
+          }),
+        ].join('\n'),
+        { reset: false },
+      );
+
+      const node = getStore().getState().findHydrateNode('s1', 'root');
+      assert.deepEqual(node?.props, { text: { path: '/headline' } });
+      assert.deepEqual(node?._vnode, {
+        text: { path: '/headline', literalString: 'Hello' },
+      });
+    });
+
+    it('path 与 literal 同时出现时先写入模型，后续 dataModelUpdate 会改 vnode', () => {
+      const seen: string[] = [];
+      init({
+        renderMap: {
+          Text: (props) => {
+            const text = props.text as { literalString?: string };
+            seen.push(text.literalString ?? '');
+            return text.literalString ?? '';
+          },
+        },
+      });
+      parseJsonl(
+        [
+          JSON.stringify({
+            surfaceUpdate: {
+              surfaceId: 's1',
+              components: [
+                {
+                  id: 'root',
+                  component: {
+                    Text: { text: { path: '/user/name', literalString: 'Guest' } },
+                  },
+                },
+              ],
+            },
+          }),
+          JSON.stringify({
+            dataModelUpdate: {
+              surfaceId: 's1',
+              path: 'user',
+              contents: [{ key: 'name', valueString: 'Bob' }],
+            },
+          }),
+        ].join('\n'),
+        { reset: false },
+      );
+
+      assert.deepEqual(getStore().getState().dataModelMap.s1, {
+        user: { name: 'Bob' },
+      });
+      assert.equal(getStore().getState().findHydrateNode('s1', 'root')?._vnode, 'Bob');
+      assert.deepEqual(seen, ['Guest', 'Bob']);
+    });
+
+    it('后到的隐式初始化会重渲染已经绑定该路径的旧节点', () => {
+      init({
+        renderMap: {
+          Text: (props) => (props.text as { literalString?: string }).literalString ?? '',
+        },
+      });
+      parseJsonl(
+        [
+          JSON.stringify({
+            surfaceUpdate: {
+              surfaceId: 's1',
+              components: [
+                { id: 'title', component: { Text: { text: { path: '/headline' } } } },
+              ],
+            },
+          }),
+          JSON.stringify({
+            surfaceUpdate: {
+              surfaceId: 's1',
+              components: [
+                {
+                  id: 'note',
+                  component: {
+                    Text: { text: { path: '/headline', literalString: 'Guest' } },
+                  },
+                },
+              ],
+            },
+          }),
+        ].join('\n'),
+        { reset: false },
+      );
+
+      assert.equal(getStore().getState().findHydrateNode('s1', 'title')?._vnode, 'Guest');
+      assert.equal(getStore().getState().findHydrateNode('s1', 'note')?._vnode, 'Guest');
     });
   });
 

@@ -317,4 +317,197 @@ describe('treeBuild', () => {
     assert.equal(root?.children[0].componentId, 'b');
     assert.deepEqual(root?.children[0].children, [], '环上的 a 不再展开');
   });
+
+  it('template 按 map 插入顺序展开，相对路径取当前项，绝对路径仍读 surface 模型', () => {
+    init({
+      renderMap: {
+        Column: () => 'col',
+        Text: (props) => (props.text as { literalString?: string }).literalString ?? '',
+      },
+      attachChildren: (vnode, children) => `${vnode}[${children.join(',')}]`,
+    });
+    parseJsonl(
+      [
+        JSON.stringify({
+          surfaceUpdate: {
+            surfaceId: 's1',
+            components: [
+              {
+                id: 'list',
+                component: {
+                  Column: {
+                    children: { template: { componentId: 'row', dataBinding: '/items' } },
+                  },
+                },
+              },
+              {
+                id: 'row',
+                component: { Column: { children: { explicitList: ['rel', 'abs'] } } },
+              },
+              { id: 'rel', component: { Text: { text: { path: 'title' } } } },
+              { id: 'abs', component: { Text: { text: { path: '/headline' } } } },
+            ],
+          },
+        }),
+        JSON.stringify({
+          dataModelUpdate: {
+            surfaceId: 's1',
+            contents: [
+              { key: 'headline', valueString: 'Hello' },
+              {
+                key: 'items',
+                valueMap: [
+                  { key: 'a', valueMap: [{ key: 'title', valueString: 'First' }] },
+                  { key: 'b', valueMap: [{ key: 'title', valueString: 'Second' }] },
+                ],
+              },
+            ],
+          },
+        }),
+        JSON.stringify({ beginRendering: { surfaceId: 's1', root: 'list' } }),
+      ].join('\n'),
+      { reset: false },
+    );
+
+    const tree = treeBuild().find((item) => item.surfaceId === 's1');
+    assert.deepEqual(
+      tree?.root?.children.map((child) => child.componentId),
+      ['row@a', 'row@b'],
+    );
+    assert.equal(tree?.rootVnode, 'col[col[First,Hello],col[Second,Hello]]');
+    assert.deepEqual(
+      getStore().getState().findHydrateNode('s1', 'list')?.children,
+      [],
+      'template 克隆不写入 HydrateNode.children',
+    );
+  });
+
+  it('List 的 template 按 valueMap 展开，direction 不参与组树', () => {
+    init({
+      renderMap: {
+        List: () => 'list',
+        Text: (props) => (props.text as { literalString?: string }).literalString ?? '',
+      },
+      attachChildren: (vnode, children) => `${vnode}[${children.join(',')}]`,
+    });
+    parseJsonl(
+      [
+        JSON.stringify({
+          surfaceUpdate: {
+            surfaceId: 's1',
+            components: [
+              {
+                id: 'feed',
+                component: {
+                  List: {
+                    direction: 'horizontal',
+                    alignment: 'start',
+                    children: { template: { componentId: 'item', dataBinding: '/items' } },
+                  },
+                },
+              },
+              { id: 'item', component: { Text: { text: { path: 'title' } } } },
+            ],
+          },
+        }),
+        JSON.stringify({
+          dataModelUpdate: {
+            surfaceId: 's1',
+            contents: [
+              {
+                key: 'items',
+                valueMap: [
+                  { key: 'a', valueMap: [{ key: 'title', valueString: 'First' }] },
+                  { key: 'b', valueMap: [{ key: 'title', valueString: 'Second' }] },
+                ],
+              },
+            ],
+          },
+        }),
+        JSON.stringify({ beginRendering: { surfaceId: 's1', root: 'feed' } }),
+      ].join('\n'),
+      { reset: false },
+    );
+
+    const tree = treeBuild().find((item) => item.surfaceId === 's1');
+    assert.deepEqual(
+      tree?.root?.children.map((child) => child.componentId),
+      ['item@a', 'item@b'],
+    );
+    assert.equal(tree?.rootVnode, 'list[First,Second]');
+    assert.deepEqual(getStore().getState().findHydrateNode('s1', 'feed')?.children, []);
+  });
+
+  it('template 的 dataBinding 不是集合时不产出子节点', () => {
+    init({ renderMap: { Column: () => 'col', Text: () => 'text' } });
+    parseJsonl(
+      [
+        JSON.stringify({
+          surfaceUpdate: {
+            surfaceId: 's1',
+            components: [
+              {
+                id: 'list',
+                component: {
+                  Column: {
+                    children: { template: { componentId: 'item', dataBinding: '/missing' } },
+                  },
+                },
+              },
+              { id: 'item', component: { Text: { text: { path: 'title' } } } },
+            ],
+          },
+        }),
+        JSON.stringify({ beginRendering: { surfaceId: 's1', root: 'list' } }),
+      ].join('\n'),
+      { reset: false },
+    );
+
+    const root = treeBuild().find((item) => item.surfaceId === 's1')?.root;
+    assert.deepEqual(root?.children, []);
+    assert.equal(root?.vnode, 'col');
+  });
+
+  it('literalArray 按数组下标展开 template', () => {
+    init({
+      renderMap: {
+        Column: () => 'col',
+        Text: (props) => (props.text as { literalString?: string }).literalString ?? '',
+      },
+      attachChildren: (vnode, children) => `${vnode}[${children.join(',')}]`,
+    });
+    parseJsonl(
+      [
+        JSON.stringify({
+          surfaceUpdate: {
+            surfaceId: 's1',
+            components: [
+              {
+                id: 'list',
+                component: {
+                  Column: {
+                    children: { template: { componentId: 'item', dataBinding: '/tags' } },
+                  },
+                },
+              },
+              {
+                id: 'item',
+                component: { Text: { text: { path: '/tags', literalArray: ['a', 'b'] } } },
+              },
+            ],
+          },
+        }),
+        JSON.stringify({ beginRendering: { surfaceId: 's1', root: 'list' } }),
+      ].join('\n'),
+      { reset: false },
+    );
+
+    const tree = treeBuild().find((item) => item.surfaceId === 's1');
+    assert.deepEqual(getStore().getState().dataModelMap.s1, { tags: ['a', 'b'] });
+    assert.deepEqual(
+      tree?.root?.children.map((child) => child.componentId),
+      ['item@0', 'item@1'],
+    );
+    assert.equal(tree?.rootVnode, 'col[,]');
+  });
 });

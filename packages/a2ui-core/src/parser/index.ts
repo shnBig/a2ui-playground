@@ -1,8 +1,12 @@
+import { collectImplicitInits, resolveBoundProps } from '../store/dataModel.js';
+import type { DataEntry, ImplicitWrite } from '../store/dataModel.js';
 import { a2uiStore, getStore, init } from '../store/store.js';
 import { treeBuild } from '../treebuilder/index.js';
 import type { SurfaceTree } from '../treebuilder/index.js';
 import { A2uiErrorType } from '../store/types.js';
 import type { HydrateNode, HydrateNodeMap, Surface } from '../store/types.js';
+
+export type { DataEntry };
 
 /**
  * A2UI JSONL 协议解析器。
@@ -61,14 +65,6 @@ export interface DeleteSurfaceMessage {
   deleteSurface: {
     surfaceId: string;
   };
-}
-
-export interface DataEntry {
-  key: string;
-  valueString?: string;
-  valueNumber?: number;
-  valueBoolean?: boolean;
-  valueMap?: DataEntry[];
 }
 
 /** 四种 server→client 消息的顶层 action key */
@@ -141,7 +137,7 @@ function getComponentEntry(
  * 容器组件的子节点引用：
  * - children.explicitList：Column 等多子组件容器；
  * - child：Card 等单子组件容器。
- * template 动态列表暂不支持，返回空数组。
+ * children.template 在 treeBuild 时按数据模型展开，不写入 children。
  */
 function getChildIds(props: Record<string, unknown>): string[] {
   if (typeof props.child === 'string') return [props.child];
@@ -152,6 +148,37 @@ function getChildIds(props: Record<string, unknown>): string[] {
   return explicitList.filter((id): id is string => typeof id === 'string');
 }
 
+function renderComponent(
+  surfaceId: string,
+  componentId: string,
+  type: string,
+  props: Record<string, unknown>,
+): unknown {
+  const state = getStore().getState();
+  const renderer = state.findRenderer(type);
+  if (!renderer) {
+    state.addError({
+      type: A2uiErrorType.COMPONENT_NOT_REGISTERED,
+      content: `component type "${type}" is not registered in renderMap (componentId="${componentId}")`,
+      surfaceId,
+      componentId,
+    });
+    return null;
+  }
+  try {
+    const model = state.dataModelMap[surfaceId];
+    return renderer(resolveBoundProps(props, model), { componentId, surfaceId });
+  } catch (e) {
+    state.addError({
+      type: A2uiErrorType.PARSE_ERROR,
+      content: `render "${type}" failed: ${(e as Error).message}`,
+      surfaceId,
+      componentId,
+    });
+    return null;
+  }
+}
+
 function handleSurfaceUpdate(msg: SurfaceUpdateMessage) {
   const state = getStore().getState();
   const { surfaceId, components } = msg.surfaceUpdate;
@@ -160,39 +187,32 @@ function handleSurfaceUpdate(msg: SurfaceUpdateMessage) {
     state.addSurface({ surfaceId });
   }
 
-  // 每个 component 生成 / 覆盖 HydrateNode：按 renderMap 渲染出实例并写入 _vnode
-  for (const comp of components) {
+  const previousIds = new Set(
+    Object.keys(getStore().getState().hydrateNodeMap[surfaceId] ?? {}),
+  );
+  const parsed = components.map((comp) => {
     const [type, props] = getComponentEntry(comp.component);
-    let vnode: unknown = null;
+    return { comp, type, props };
+  });
 
+  // 先把 path + literal 写入模型，本条消息里的组件再按模型渲染
+  const writes: ImplicitWrite[] = [];
+  for (const item of parsed) collectImplicitInits(item.props, writes);
+  getStore().getState().applyImplicitInits(surfaceId, writes);
+
+  const touched = new Set<string>();
+  for (const { comp, type, props } of parsed) {
+    touched.add(comp.id);
+    let vnode: unknown = null;
     if (!type) {
-      state.addError({
+      getStore().getState().addError({
         type: A2uiErrorType.COMPONENT_NOT_REGISTERED,
         content: `component "${comp.id}" has no component type key`,
         surfaceId,
         componentId: comp.id,
       });
     } else {
-      const renderer = state.findRenderer(type);
-      if (!renderer) {
-        state.addError({
-          type: A2uiErrorType.COMPONENT_NOT_REGISTERED,
-          content: `component type "${type}" is not registered in renderMap (componentId="${comp.id}")`,
-          surfaceId,
-          componentId: comp.id,
-        });
-      } else {
-        try {
-          vnode = renderer(props, { componentId: comp.id, surfaceId });
-        } catch (e) {
-          state.addError({
-            type: A2uiErrorType.PARSE_ERROR,
-            content: `render "${type}" failed: ${(e as Error).message}`,
-            surfaceId,
-            componentId: comp.id,
-          });
-        }
-      }
+      vnode = renderComponent(surfaceId, comp.id, type, props);
     }
 
     const hydrateNode: HydrateNode = {
@@ -205,8 +225,14 @@ function handleSurfaceUpdate(msg: SurfaceUpdateMessage) {
       protocol: JSON.stringify({ id: comp.id, component: comp.component }),
       children: getChildIds(props),
     };
-    state.addHydrateNode(hydrateNode);
+    getStore().getState().addHydrateNode(hydrateNode);
     wireSurfaceRoots(surfaceId, comp.id, hydrateNode);
+  }
+
+  // 本条消息没覆盖到的旧节点，也要按新模型重渲染（隐式初始化可能改了它们绑定的值）
+  const staleIds = [...previousIds].filter((id) => !touched.has(id));
+  if (staleIds.length > 0) {
+    getStore().getState().rerenderHydrateNodes(surfaceId, staleIds);
   }
 }
 
@@ -231,10 +257,14 @@ function handleBeginRendering(_rawLine: string, msg: BeginRenderingMessage) {
 }
 
 /**
- * dataModelUpdate：store 当前不维护数据模型，这里只识别消息类型，
- * 保证四种 server→client 消息都能被分发（不会被当作未知消息记错）。
+ * dataModelUpdate 先写入中心 store，再按原始 props 重渲染该 surface。
+ * 不创建 surface；模型可以早于组件到达。
  */
-function handleDataModelUpdate(_rawLine: string, _msg: DataModelUpdateMessage): void {}
+function handleDataModelUpdate(_rawLine: string, msg: DataModelUpdateMessage): void {
+  const { surfaceId, path, contents } = msg.dataModelUpdate;
+  if (!surfaceId || !Array.isArray(contents)) return;
+  getStore().getState().applyDataModelUpdate(surfaceId, path, contents);
+}
 
 function handleDeleteSurface(_rawLine: string, msg: DeleteSurfaceMessage) {
   getStore().getState().removeSurface(msg.deleteSurface.surfaceId);

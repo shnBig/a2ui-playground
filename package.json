@@ -8,6 +8,6 @@
     "dev": "pnpm --filter @a2ui/playground dev",
     "dev:server": "pnpm --filter @a2ui/playground-server dev",
     "build": "pnpm -r build",
-    "dev:all": "pnpm -r --parallel dev"
+    "dev:all": "pnpm --filter @a2ui/playground --filter @a2ui/playground-server --parallel dev"
   }
 }

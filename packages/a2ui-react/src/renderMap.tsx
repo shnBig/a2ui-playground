@@ -3,10 +3,12 @@ import type { ReactElement, ReactNode } from 'react';
 import type { AttachChildren, RenderMap } from '@a2ui/core';
 import {
   AudioPlayer,
+  Button,
   Card,
   CheckBox,
   Column,
   DateTimeInput,
+  List,
   Divider,
   Icon,
   Image,
@@ -24,6 +26,7 @@ import type {
   A2uiTextValue,
   MultipleChoiceOption,
 } from './components/index.js';
+import type { A2uiAction } from './actions/dispatchAction.js';
 
 /** 协议属性是运行时数据，这里统一做形变与类型收敛，避免渲染层到处 as any */
 function asObject(value: unknown): Record<string, unknown> | undefined {
@@ -69,9 +72,9 @@ function asOptions(value: unknown): MultipleChoiceOption[] {
  * 第二个参数是渲染上下文（componentId / surfaceId），
  * 每个渲染器都会把 componentId 透传到组件根元素上，便于在页面中定位组件。
  *
- * 暂不包含需要引用其它组件节点的结构化组件：
- * Row / List / Tabs / Modal / Button（child 指向另一个组件）。
- * Column / Card 已实现为容器：子节点由 treeBuild 组装，渲染时通过 attachChildren 注入。
+ * 暂不包含：Row / Tabs / Modal。
+ * Column / Card / List / Button 为容器：子节点由 treeBuild 组装，渲染时通过 attachChildren 注入。
+ * Button.action.type=localUpdate 时在客户端 applyDataModelUpdate。
  */
 export const renderMap: RenderMap<ReactElement> = {
   Column: (props, context) => (
@@ -83,6 +86,23 @@ export const renderMap: RenderMap<ReactElement> = {
   ),
 
   Card: (_props, context) => <Card componentId={context.componentId} />,
+
+  Button: (props, context) => (
+    <Button
+      componentId={context.componentId}
+      surfaceId={context.surfaceId}
+      primary={props.primary === true}
+      action={asObject(props.action) as A2uiAction | undefined}
+    />
+  ),
+
+  List: (props, context) => (
+    <List
+      componentId={context.componentId}
+      direction={asString(props.direction)}
+      alignment={asString(props.alignment)}
+    />
+  ),
 
   Text: (props, context) => (
     <Text
